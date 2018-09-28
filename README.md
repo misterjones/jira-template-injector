@@ -1,5 +1,15 @@
 # Jira Template Injector
 
+### Information Regarding This Fork:
+
+This fork was created to make this extension compatible with my company's JIRA instance.
+
+Within the "Create Issue" modal, our _Description_ field has a _Visual_ tab and a _Text_ tab.
+
+Updates have been made to add template injection and `<TI>` tag text-selection functionality to our multi-tabbed _Description_ field.
+
+### Original Version:
+
 Chrome Web Store [Link](https://chrome.google.com/webstore/detail/jira-template-injector/hmhpegjieopgbdmpocdmfkafjgcdmhha).
 If you find it useful please leave a [review](https://chrome.google.com/webstore/detail/jira-template-injector/hmhpegjieopgbdmpocdmfkafjgcdmhha/reviews)!
 
