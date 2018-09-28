@@ -6,6 +6,8 @@
 var StorageID = 'Jira-Template-Injector';
 var inputIDs = [];
 
+var needToReturnToDescriptionVisualTab = false;
+
 var browserType = 'Chrome'; // eslint-disable-line no-unused-vars
 if (navigator.userAgent.indexOf('Firefox') !== -1 || navigator.userAgent.indexOf('Edge') !== -1) {
     chrome = browser; // eslint-disable-line no-native-reassign
@@ -24,18 +26,50 @@ chrome.runtime.sendMessage({JDTIfunction: 'getInputIDs'}, function (response) {
         inputIDs.push(inputID.name);
     });
 
-    $(document).on('click', `#${inputIDs.join(', #')}`, function (inputID) {
-        var text = $(this).val(),
+    $(document).on('click', `#${inputIDs.join(', #')}`, clickHandler);
+
+    if (inputIDs.includes('description')) {
+        // The rte-container is the Visual tab; we add a click handler to it
+        // because the iframe containing the TinyMCE editor in it isn't added to
+        // the DOM until it's clicked on.
+        // Once the iframe is added, we can then add a click handler to its
+        // contenteditable HTML body.
+        $(document).on('click', '#description-wiki-edit div.rte-container', function () {
+            var visualDescriptionIframe = $('#description-wiki-edit iframe').eq(0);
+            var visualDescription = visualDescriptionIframe.contents().find('body#tinymce').eq(0);
+            $(visualDescription).on('click', clickHandler);
+        });
+    }
+
+    function clickHandler(inputID) {
+        var text,
             ctrlDown = false,
             backtickKey = 192,
             ctrlKey = 17,
-            cursorStart = $(this).prop('selectionStart'),
-            cursorFinish = $(this).prop('selectionEnd'),
-            end = (text.length - 5),
+            cursorStart,
+            cursorFinish,
+            end,
             selectStart = null,
             selectEnd = null,
+            selection,
+            visualDescriptionIframeDocument,
+            visualDescriptionBodyClicked = ($(this).prop('tagName') === 'BODY'),
             i = 0;
 
+        if (visualDescriptionBodyClicked) {
+            visualDescriptionIframeDocument = $('#description-wiki-edit iframe').eq(0).contents().get(0);
+            selection = visualDescriptionIframeDocument.getSelection();
+            text = selection.anchorNode.textContent;
+            cursorStart = selection.anchorOffset;
+            cursorFinish = selection.focusOffset;
+        } else {
+            text = $(this).val();
+            cursorStart = $(this).prop('selectionStart');
+            cursorFinish = $(this).prop('selectionEnd');
+        }
+
+        end = (text.length - 5);
+        
         // Only proceed if this is a click. i.e. not a highlight.
         if (cursorStart === cursorFinish) {
             // Look for opening tag '<TI>'.
@@ -68,7 +102,12 @@ chrome.runtime.sendMessage({JDTIfunction: 'getInputIDs'}, function (response) {
                 }
                 if (selectEnd) {
                     // Select all the text between the two tags.
-                    $(this)[0].setSelectionRange(selectStart, selectEnd);
+                    if (visualDescriptionBodyClicked) {
+                        selection.collapse(selection.anchorNode, selectStart);
+                        selection.extend(selection.focusNode, selectEnd);
+                    } else {
+                        $(this)[0].setSelectionRange(selectStart, selectEnd);
+                    }
                     cursorStart = cursorFinish = selectStart; // Set the cursor position to the select start point. This will ensure we find the next <TI> tag when using keyboard shortcut
                 } else { // This only happens when user clicks on the the closing <TI> tag. Set selectStart to null so that it wont break the keyborad functionality
                     selectStart = null;
@@ -114,7 +153,7 @@ chrome.runtime.sendMessage({JDTIfunction: 'getInputIDs'}, function (response) {
                 }
             }
         });
-    });
+    }
 });
 
 function selectNextSelectionRange (selector, cursorStart, tagStartIndex, tagEndIndex) {
@@ -242,11 +281,36 @@ function descriptionChangeEvent (changeEvent) {
 
 function observeDocumentBody (mutation) {
     if (document.getElementById('create-issue-dialog') !== null || document.getElementById('create-subtask-dialog') !== null) { // Only interested in document changes related to Create Issue Dialog box or Create Sub-task Dialog box.
+        if ($('div#description-wiki-edit li.menu-item') !== null) { // Check for Visual and Text tabs in Description field.
+            var descriptionTextTab = $('div#description-wiki-edit ul.tabs-menu [data-mode="source"]').eq(0);
+            var descriptionVisualTab = $('div#description-wiki-edit ul.tabs-menu [data-mode="wysiwyg"]').eq(0);
+
+            // Template needs to be injected into the Text tab in order to be
+            // properly rendered into HTML in the Visual tab.
+            if (descriptionVisualTab.hasClass('active-tab') && !needToReturnToDescriptionVisualTab) {
+                needToReturnToDescriptionVisualTab = true;
+                $(descriptionTextTab).children('a').get(0).click();
+            }
+        }
+
         if (inputIDs.includes(mutation.target.id)) { // Only interested in select input id fields.
             var descriptionElement = mutation.target;
             isDefaultDescription(descriptionElement.value, function (result) {
                 if (result) { // Only inject if description field has not been modified by the user.
                     injectDescriptionTemplate(descriptionElement);
+
+                    if (needToReturnToDescriptionVisualTab) {
+                        needToReturnToDescriptionVisualTab = false;
+                        // We have to wait before clicking on the Visual tab,
+                        // and once more before focusing on the Summary field.
+                        setTimeout(function () {
+                            $(descriptionVisualTab).children('a').get(0).click();
+                            setTimeout(function () {
+                                $('#summary').eq(0).focus();
+                            }, 500);
+                        }, 1500);
+                    }
+
                     if (descriptionElement.className.indexOf('ajs-dirty-warning-exempt') === -1) { // Default template injection should not pop up dirtyDialogMessage.
                         descriptionElement.className += ' ajs-dirty-warning-exempt';
                         descriptionElement.addEventListener('change', descriptionChangeEvent);
